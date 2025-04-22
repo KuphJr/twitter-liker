@@ -1,0 +1,26 @@
+{
+  "name": "twitter-liker",
+  "version": "1.0.0",
+  "description": "This allows you to like all replies to a given tweet",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/KuphJr/twitter-liker.git"
+  },
+  "author": "KuphJr",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/KuphJr/twitter-liker/issues"
+  },
+  "homepage": "https://github.com/KuphJr/twitter-liker#readme",
+  "devDependencies": {
+    "@types/node": "^22.14.1",
+    "typescript": "^5.8.3"
+  },
+  "dependencies": {
+    "dotenv": "^16.5.0"
+  }
+}
