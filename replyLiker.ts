@@ -34,13 +34,19 @@ function randomDelay(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, delay));
 }
 
+/**
+ * Simple function to fetch replies to a tweet
+ */
 async function getReplies(tweetId: string): Promise<string[]> {
   const replyTweetIds: string[] = [];
   let cursor: string | null = null;
   let hasMore = true;
-
+  
+  console.log(`Starting to fetch replies for tweet ${tweetId}`);
+  
+  // Continue fetching while there are more pages
   while (hasMore) {
-    // Create variables object based on example request
+    // Basic variables for the GraphQL request
     const variables: any = {
       focalTweetId: tweetId,
       with_rux_injections: false,
@@ -51,12 +57,13 @@ async function getReplies(tweetId: string): Promise<string[]> {
       withVoice: true,
       withV2Timeline: true
     };
-
+    
+    // Add cursor for pagination if available
     if (cursor) {
       variables.cursor = cursor;
     }
-
-    // Features parameter from example request
+    
+    // Features parameter is required by the API
     const features = {
       rweb_video_screen_enabled: false,
       profile_label_improvements_pcf_label_in_post_enabled: true,
@@ -91,103 +98,116 @@ async function getReplies(tweetId: string): Promise<string[]> {
       responsive_web_grok_image_annotation_enabled: true,
       responsive_web_enhance_cards_enabled: false
     };
-
-    // Field toggles parameter from example request
+    
+    // Field toggles parameter is also required
     const fieldToggles = {
       withArticleRichContentState: true,
       withArticlePlainText: false,
       withGrokAnalyze: false,
       withDisallowedReplyControls: false
     };
-
-    // Construct URL with all parameters from the example
+    
+    // Fetch the data from Twitter's API with all required parameters
     const url = `https://x.com/i/api/graphql/b9Yw90FMr_zUb8DvA8r2ug/TweetDetail?variables=${encodeURIComponent(JSON.stringify(variables))}&features=${encodeURIComponent(JSON.stringify(features))}&fieldToggles=${encodeURIComponent(JSON.stringify(fieldToggles))}`;
-
-    console.log('Fetching replies with URL:', url.substring(0, 100) + '...');
     
-    const res = await fetch(url, { headers: HEADERS });
+    console.log(`Fetching page ${cursor ? `with cursor: ${cursor.substring(0, 20)}...` : '(initial)'}`);
     
-    if (!res.ok) {
-      const text = await res.text();
-      console.error(`Failed to fetch replies: ${res.status} ${res.statusText}`, text);
-      throw new Error(`API request failed with status ${res.status}`);
+    const response = await fetch(url, { headers: HEADERS });
+    
+    if (!response.ok) {
+      console.error(`API request failed: ${response.status} ${response.statusText}`);
+      break;
     }
     
-    const json = await res.json();
-
-    // Extract entries from the correct path in the response
+    const json = await response.json();
+    
+    // Extract all tweet entries and cursors
+    hasMore = false; // Reset for this iteration
+    
+    // Get the instructions from the response
     const instructions = json.data?.threaded_conversation_with_injections_v2?.instructions || [];
-    const entries = instructions
-      .filter((instr: any) => instr.type === "TimelineAddEntries")
-      .flatMap((instr: any) => instr.entries || []);
-
-    for (const entry of entries) {
-      // Process entries that contain tweets
-      if (entry.content?.entryType === "TimelineTimelineModule") {
-        // Process each item in the module
-        for (const item of (entry.content?.items || [])) {
-          const tweetResult = item.item?.itemContent?.tweet_results?.result;
-          const tweetIdEntry = tweetResult?.rest_id;
-          if (tweetIdEntry && tweetIdEntry !== tweetId) {
-            replyTweetIds.push(tweetIdEntry);
+    
+    // Process TimelineAddEntries instructions to find tweets and cursors
+    for (const instruction of instructions) {
+      if (instruction.type === "TimelineAddEntries") {
+        for (const entry of instruction.entries || []) {
+          // Extract tweets from TimelineTimelineModule
+          if (entry.content?.entryType === "TimelineTimelineModule") {
+            // Process each item in the module to find tweets
+            for (const item of (entry.content?.items || [])) {
+              const tweetId = item.item?.itemContent?.tweet_results?.result?.rest_id;
+              if (tweetId && !replyTweetIds.includes(tweetId)) {
+                replyTweetIds.push(tweetId);
+              }
+            }
+          }
+          
+          // Check for cursors for the next page
+          if (entry.content?.itemContent?.cursorType === "Bottom" && entry.content?.itemContent?.value) {
+            cursor = entry.content.itemContent.value;
+            hasMore = true;
           }
         }
       }
-
-      // Look for cursor for pagination
-      if (entry.entryId?.includes("cursor-bottom") && entry.content?.value) {
-        cursor = entry.content.value;
-        hasMore = true;
-      }
     }
 
-    // If no new cursor found, stop pagination
-    if (!cursor) {
-      hasMore = false;
-    } else {
-      console.log(`Found ${replyTweetIds.length} replies so far, fetching more...`);
-      await randomDelay();
-    }
+    // append the entire response body to a JSON file for debugging
+    const fs = require('fs');
+    const path = require('path');
+    fs.appendFileSync(path.join(__dirname, 'replies.json'), JSON.stringify(json) + '\n');
+
+    console.log('hasMore', hasMore);
+    
+    console.log(`Found ${replyTweetIds.length} replies so far`);
+    
+    // Add a delay between requests
+    await randomDelay();
   }
-
-  return [...new Set(replyTweetIds)];
+  
+  return replyTweetIds;
 }
 
+/**
+ * Like a tweet using Twitter's API
+ */
 async function likeTweet(tweetId: string): Promise<void> {
-  // Using GraphQL endpoint from the example
   const url = 'https://x.com/i/api/graphql/lI07N6Otwv1PhnEgXILM7A/FavoriteTweet';
   
-  // Structure body according to the example
   const body = JSON.stringify({
-    variables: {
-      tweet_id: tweetId
-    },
+    variables: { tweet_id: tweetId },
     queryId: "lI07N6Otwv1PhnEgXILM7A"
   });
 
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: HEADERS,
-    body,
-  });
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: HEADERS,
+      body,
+    });
 
-  if (res.ok) {
-    console.log(`✅ Liked tweet ${tweetId}`);
-  } else {
-    const text = await res.text();
-    console.error(`❌ Failed to like tweet ${tweetId}`, text);
+    if (res.ok) {
+      console.log(`✅ Liked tweet ${tweetId}`);
+    } else {
+      console.error(`❌ Failed to like tweet ${tweetId}`);
+    }
+  } catch (error) {
+    console.error(`Error liking tweet ${tweetId}:`, error);
   }
 }
 
+// Main execution
 (async () => {
   try {
     console.log(`🔍 Fetching all replies to tweet ${TWEET_ID}...`);
     const replies = await getReplies(TWEET_ID);
 
-    console.log(`💬 Found ${replies.length} replies.`);
+    console.log(`💬 Found ${replies.length} replies. Starting to like them...`);
+    
     for (const id of replies) {
-      await likeTweet(id);
-      await randomDelay();
+      if (id !== TWEET_ID) { // Skip the original tweet if it was included
+        await likeTweet(id);
+        await randomDelay();
+      }
     }
 
     console.log('🎉 Done liking all replies.');
